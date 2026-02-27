@@ -23,13 +23,27 @@ import IntegrationsPage from "@/pages/settings/integrations";
 import CredentialsPage from "@/pages/settings/credentials";
 import NotificationsPage from "@/pages/settings/notifications";
 import NotFound from "@/pages/NotFound";
+import { getStoredToken } from "@/hooks/useAuth";
+
+/** Redirects to /login if there is no stored auth token. */
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  const token = getStoredToken();
+  if (!token) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
 
 export function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route element={<DashboardLayout />}>
+        <Route
+          element={
+            <PrivateRoute>
+              <DashboardLayout />
+            </PrivateRoute>
+          }
+        >
           <Route path="/" element={<Navigate to="/apps" replace />} />
           <Route path="/apps" element={<AppsPage />} />
           <Route path="/apps/new" element={<NewAppPage />} />
