@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +57,7 @@ type AppReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile moves the current cluster state toward the desired state declared in App.
 func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -116,7 +118,13 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// 8. Sync status from the Deployment.
+	// 8. Reconcile Ingress for custom domains.
+	if err := r.reconcileIngress(ctx, app, targetNamespace); err != nil {
+		_ = r.setDegradedCondition(ctx, app, "IngressFailed", err.Error())
+		return ctrl.Result{}, err
+	}
+
+	// 9. Sync status from the Deployment.
 	return r.syncStatus(ctx, app, deployment)
 }
 
@@ -274,6 +282,87 @@ func (r *AppReconciler) reconcileService(ctx context.Context, app *platformv1alp
 	return r.Patch(ctx, existing, patch)
 }
 
+// reconcileIngress creates, updates, or deletes the Ingress for the App's custom domains.
+func (r *AppReconciler) reconcileIngress(ctx context.Context, app *platformv1alpha1.App, namespace string) error {
+	ingressName := app.Name
+	existing := &networkingv1.Ingress{}
+	getErr := r.Get(ctx, types.NamespacedName{Name: ingressName, Namespace: namespace}, existing)
+
+	// If no domains are configured, delete any existing Ingress.
+	if len(app.Spec.Domains) == 0 {
+		if apierrors.IsNotFound(getErr) {
+			return nil
+		}
+		if getErr != nil {
+			return getErr
+		}
+		return r.Delete(ctx, existing)
+	}
+
+	port := app.Spec.Port
+	if port == 0 {
+		port = 8080
+	}
+
+	pathType := networkingv1.PathTypePrefix
+	rules := make([]networkingv1.IngressRule, 0, len(app.Spec.Domains))
+	for _, domain := range app.Spec.Domains {
+		rules = append(rules, networkingv1.IngressRule{
+			Host: domain,
+			IngressRuleValue: networkingv1.IngressRuleValue{
+				HTTP: &networkingv1.HTTPIngressRuleValue{
+					Paths: []networkingv1.HTTPIngressPath{
+						{
+							Path:     "/",
+							PathType: &pathType,
+							Backend: networkingv1.IngressBackend{
+								Service: &networkingv1.IngressServiceBackend{
+									Name: app.Name,
+									Port: networkingv1.ServiceBackendPort{
+										Number: port,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+
+	labels := appLabels(app.Name)
+	desired := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ingressName,
+			Namespace: namespace,
+			Labels:    labels,
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/proxy-body-size": "0",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: rules,
+		},
+	}
+
+	if namespace == app.Namespace {
+		if err := controllerutil.SetControllerReference(app, desired, r.Scheme); err != nil {
+			return fmt.Errorf("set owner reference on Ingress: %w", err)
+		}
+	}
+
+	if apierrors.IsNotFound(getErr) {
+		return r.Create(ctx, desired)
+	}
+	if getErr != nil {
+		return getErr
+	}
+
+	patch := client.MergeFrom(existing.DeepCopy())
+	existing.Spec.Rules = desired.Spec.Rules
+	return r.Patch(ctx, existing, patch)
+}
+
 // syncStatus reads the Deployment state and reflects it back onto App.Status.
 func (r *AppReconciler) syncStatus(ctx context.Context, app *platformv1alpha1.App, deployment *appsv1.Deployment) (ctrl.Result, error) {
 	patch := client.MergeFrom(app.DeepCopy())
@@ -281,6 +370,14 @@ func (r *AppReconciler) syncStatus(ctx context.Context, app *platformv1alpha1.Ap
 	app.Status.AvailableReplicas = deployment.Status.AvailableReplicas
 	app.Status.ReadyReplicas = deployment.Status.ReadyReplicas
 	app.Status.ImageTag = imageTag(app.Spec.Image)
+
+	// Populate the primary URL: prefer the first custom domain, fall back to
+	// the in-cluster service address.
+	if len(app.Spec.Domains) > 0 {
+		app.Status.URL = "https://" + app.Spec.Domains[0]
+	} else {
+		app.Status.URL = ""
+	}
 
 	desiredReplicas := int32(1)
 	if app.Spec.Replicas != nil {
