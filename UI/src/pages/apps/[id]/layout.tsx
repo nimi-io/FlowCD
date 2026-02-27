@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Outlet, useParams, useNavigate } from "react-router-dom";
 import { useApp } from "@/hooks/useApps";
 import { AppSubNav } from "@/components/layout/AppSubNav";
@@ -6,11 +7,23 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Rocket, RotateCcw, FileText } from "lucide-react";
+import { triggerRedeploy } from "@/lib/api";
 
 export default function AppLayout() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: app, isLoading, isError, refetch } = useApp(id ?? "");
+  const [deploying, setDeploying] = useState(false);
+
+  const handleDeploy = async () => {
+    setDeploying(true);
+    try {
+      await triggerRedeploy(id ?? "");
+      refetch();
+    } finally {
+      setDeploying(false);
+    }
+  };
 
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={() => refetch()} message="Failed to load app details." />;
@@ -46,9 +59,11 @@ export default function AppLayout() {
             <Button
               size="sm"
               className="gap-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 flex-1 sm:flex-none"
+              onClick={handleDeploy}
+              disabled={deploying}
             >
               <Rocket className="h-3.5 w-3.5" />
-              Deploy
+              {deploying ? "Deploying..." : "Deploy"}
             </Button>
           </div>
         </div>
