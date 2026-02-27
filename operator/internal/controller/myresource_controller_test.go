@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -30,55 +31,157 @@ import (
 	platformv1alpha1 "github.com/nimi-io/FlowCD/operator/api/v1alpha1"
 )
 
-var _ = Describe("MyResource Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+var _ = Describe("Pipeline Controller", func() {
+	const (
+		pipelineName = "test-pipeline"
+		appName      = "test-app-for-pipeline"
+		namespace    = "default"
+	)
 
-		ctx := context.Background()
+	ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	pipelineNSN := types.NamespacedName{Name: pipelineName, Namespace: namespace}
+	appNSN := types.NamespacedName{Name: appName, Namespace: namespace}
+
+	// ─── helpers ──────────────────────────────────────────────────────────────
+
+	makePipeline := func(appRef string, suspended bool) *platformv1alpha1.Pipeline {
+		return &platformv1alpha1.Pipeline{
+			ObjectMeta: metav1.ObjectMeta{Name: pipelineName, Namespace: namespace},
+			Spec: platformv1alpha1.PipelineSpec{
+				AppRef:    appRef,
+				Registry:  "ghcr.io/myorg",
+				ImageName: "test-app",
+				Suspended: suspended,
+			},
 		}
-		myresource := &platformv1alpha1.MyResource{}
+	}
 
+	makeApp := func() *platformv1alpha1.App {
+		return &platformv1alpha1.App{
+			ObjectMeta: metav1.ObjectMeta{Name: appName, Namespace: namespace},
+			Spec: platformv1alpha1.AppSpec{
+				RepoUrl: "https://github.com/example/app",
+				Branch:  "main",
+			},
+		}
+	}
+
+	reconcileOnce := func() error {
+		r := &PipelineReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: pipelineNSN})
+		return err
+	}
+
+	// ─── test cases ───────────────────────────────────────────────────────────
+
+	Context("When the referenced App exists", func() {
 		BeforeEach(func() {
-			By("creating the custom resource for the Kind MyResource")
-			err := k8sClient.Get(ctx, typeNamespacedName, myresource)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1alpha1.MyResource{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			By("creating the backing App")
+			app := makeApp()
+			err := k8sClient.Get(ctx, appNSN, &platformv1alpha1.App{})
+			if errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, app)).To(Succeed())
+			}
+
+			By("creating the Pipeline")
+			pipeline := makePipeline(appName, false)
+			err = k8sClient.Get(ctx, pipelineNSN, &platformv1alpha1.Pipeline{})
+			if errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, pipeline)).To(Succeed())
 			}
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &platformv1alpha1.MyResource{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance MyResource")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &MyResourceReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			By("deleting the Pipeline")
+			p := &platformv1alpha1.Pipeline{}
+			if err := k8sClient.Get(ctx, pipelineNSN, p); err == nil {
+				Expect(k8sClient.Delete(ctx, p)).To(Succeed())
 			}
+			By("deleting the App")
+			a := &platformv1alpha1.App{}
+			if err := k8sClient.Get(ctx, appNSN, a); err == nil {
+				Expect(k8sClient.Delete(ctx, a)).To(Succeed())
+			}
+		})
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+		It("should set Ready condition and Pending phase", func() {
+			By("running the reconciler")
+			Expect(reconcileOnce()).To(Succeed())
+
+			By("checking the Pipeline status")
+			pipeline := &platformv1alpha1.Pipeline{}
+			Expect(k8sClient.Get(ctx, pipelineNSN, pipeline)).To(Succeed())
+
+			Expect(pipeline.Status.Phase).To(Equal(platformv1alpha1.PipelinePhasePending))
+
+			cond := meta.FindStatusCondition(pipeline.Status.Conditions, pipelineConditionReady)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("Configured"))
+		})
+	})
+
+	Context("When the referenced App does NOT exist", func() {
+		BeforeEach(func() {
+			By("creating a Pipeline with a non-existent appRef")
+			pipeline := makePipeline("does-not-exist", false)
+			err := k8sClient.Get(ctx, pipelineNSN, &platformv1alpha1.Pipeline{})
+			if errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, pipeline)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			p := &platformv1alpha1.Pipeline{}
+			if err := k8sClient.Get(ctx, pipelineNSN, p); err == nil {
+				Expect(k8sClient.Delete(ctx, p)).To(Succeed())
+			}
+		})
+
+		It("should set Degraded phase with AppNotFound condition", func() {
+			By("running the reconciler")
+			Expect(reconcileOnce()).To(Succeed())
+
+			By("checking the Pipeline status")
+			pipeline := &platformv1alpha1.Pipeline{}
+			Expect(k8sClient.Get(ctx, pipelineNSN, pipeline)).To(Succeed())
+
+			Expect(pipeline.Status.Phase).To(Equal(platformv1alpha1.PipelinePhaseDegraded))
+
+			cond := meta.FindStatusCondition(pipeline.Status.Conditions, pipelineConditionDegraded)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(cond.Reason).To(Equal("AppNotFound"))
+		})
+	})
+
+	Context("When the Pipeline is suspended", func() {
+		BeforeEach(func() {
+			By("creating a suspended Pipeline")
+			pipeline := makePipeline(appName, true)
+			err := k8sClient.Get(ctx, pipelineNSN, &platformv1alpha1.Pipeline{})
+			if errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, pipeline)).To(Succeed())
+			}
+		})
+
+		AfterEach(func() {
+			p := &platformv1alpha1.Pipeline{}
+			if err := k8sClient.Get(ctx, pipelineNSN, p); err == nil {
+				Expect(k8sClient.Delete(ctx, p)).To(Succeed())
+			}
+		})
+
+		It("should set Suspended phase", func() {
+			By("running the reconciler")
+			Expect(reconcileOnce()).To(Succeed())
+
+			By("checking the Pipeline status")
+			pipeline := &platformv1alpha1.Pipeline{}
+			Expect(k8sClient.Get(ctx, pipelineNSN, pipeline)).To(Succeed())
+
+			Expect(pipeline.Status.Phase).To(Equal(platformv1alpha1.PipelinePhaseSuspended))
 		})
 	})
 })
