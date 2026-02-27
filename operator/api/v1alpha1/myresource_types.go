@@ -21,7 +21,7 @@ import (
 )
 
 // PipelinePhase is the lifecycle phase of a Pipeline.
-// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Suspended
+// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed;Degraded;Suspended
 type PipelinePhase string
 
 const (
@@ -29,6 +29,7 @@ const (
 	PipelinePhaseRunning   PipelinePhase = "Running"
 	PipelinePhaseSucceeded PipelinePhase = "Succeeded"
 	PipelinePhaseFailed    PipelinePhase = "Failed"
+	PipelinePhaseDegraded  PipelinePhase = "Degraded"
 	PipelinePhaseSuspended PipelinePhase = "Suspended"
 )
 
