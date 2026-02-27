@@ -185,11 +185,11 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "App")
 		os.Exit(1)
 	}
-	if err := (&controller.MyResourceReconciler{
+	if err := (&controller.PipelineReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "MyResource")
+		setupLog.Error(err, "Failed to create controller", "controller", "Pipeline")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
