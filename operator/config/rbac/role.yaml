@@ -37,10 +37,22 @@ rules:
   - update
   - watch
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - platform.flowcd.io
   resources:
   - apps
-  - myresources
+  - pipelines
   verbs:
   - create
   - delete
@@ -53,14 +65,14 @@ rules:
   - platform.flowcd.io
   resources:
   - apps/finalizers
-  - myresources/finalizers
+  - pipelines/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.flowcd.io
   resources:
   - apps/status
-  - myresources/status
+  - pipelines/status
   verbs:
   - get
   - patch
