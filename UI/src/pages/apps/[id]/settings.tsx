@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertTriangle, Save, Trash2 } from "lucide-react";
+import { deleteApp, MOCK_MODE } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -127,7 +128,14 @@ export default function AppSettingsPage() {
               <AlertDialogCancel className="rounded-lg">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-lg"
-                onClick={() => navigate("/apps")}
+                onClick={async () => {
+                  try {
+                    if (!MOCK_MODE) await deleteApp(id ?? "");
+                    navigate("/apps");
+                  } catch {
+                    navigate("/apps");
+                  }
+                }}
               >
                 Delete App
               </AlertDialogAction>
