@@ -37,6 +37,7 @@ import (
 
 	platformv1alpha1 "github.com/nimi-io/FlowCD/operator/api/v1alpha1"
 	"github.com/nimi-io/FlowCD/operator/internal/controller"
+	webhookv1alpha1 "github.com/nimi-io/FlowCD/operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -190,6 +191,10 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pipeline")
+		os.Exit(1)
+	}
+	if err := webhookv1alpha1.SetupAppWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to set up webhook", "webhook", "App")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
