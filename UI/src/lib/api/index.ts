@@ -3,6 +3,7 @@ const MOCK_MODE = import.meta.env.VITE_MOCK_MODE !== "false";
 
 export { MOCK_MODE };
 
+export * from "./auth";
 export * from "./apps";
 export * from "./clusters";
 export * from "./pipelines";
