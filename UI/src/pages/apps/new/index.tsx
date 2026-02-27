@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ChevronRight, ChevronLeft, Check, GitBranch, Settings, Variable, Globe, Rocket, Plus, Trash2 } from "lucide-react";
+import { createApp, MOCK_MODE } from "@/lib/api";
 
 const STEPS = [
   { id: 1, label: "Repository", icon: GitBranch },
@@ -67,9 +68,32 @@ export default function NewAppPage() {
   };
   const prev = () => setStep((s) => Math.max(s - 1, 1));
 
-  const deploy = () => {
+  const deploy = async () => {
     setSubmitting(true);
-    setTimeout(() => navigate("/apps"), 1500);
+    setErrors({});
+    try {
+      if (!MOCK_MODE) {
+        const rawName = form.repoUrl
+          .replace(/\.git$/, "")
+          .split("/")
+          .filter(Boolean)
+          .pop()
+          ?? "app";
+        const name = rawName.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+        await createApp({
+          name,
+          repoUrl: form.repoUrl,
+          branch: form.branch,
+          domains: form.domains.filter((d) => d.trim() !== ""),
+        });
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      navigate("/apps");
+    } catch (err) {
+      setErrors({ submit: String(err) });
+      setSubmitting(false);
+    }
   };
 
   return (
