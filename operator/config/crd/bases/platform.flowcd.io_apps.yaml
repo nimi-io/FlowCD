@@ -127,6 +127,11 @@ spec:
                 description: repoUrl is the URL of the Git repository to deploy from.
                 minLength: 1
                 type: string
+              suspended:
+                description: |-
+                  suspended temporarily halts reconciliation of this App without deleting it.
+                  The Deployment is scaled to zero and the phase is set to Suspended.
+                type: boolean
             required:
             - repoUrl
             type: object
