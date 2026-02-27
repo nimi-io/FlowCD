@@ -391,6 +391,23 @@ func (r *AppReconciler) syncStatus(ctx context.Context, app *platformv1alpha1.Ap
 	}
 
 	switch {
+	case deploymentProgressDeadlineExceeded(deployment):
+		app.Status.Phase = platformv1alpha1.AppPhaseFailed
+		meta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{
+			Type:               conditionTypeDegraded,
+			Status:             metav1.ConditionTrue,
+			Reason:             "ProgressDeadlineExceeded",
+			Message:            "Deployment exceeded its progress deadline and has failed.",
+			ObservedGeneration: app.Generation,
+		})
+		meta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{
+			Type:               conditionTypeAvailable,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ProgressDeadlineExceeded",
+			Message:            "Deployment failed.",
+			ObservedGeneration: app.Generation,
+		})
+
 	case deployment.Status.ReadyReplicas == desiredReplicas:
 		app.Status.Phase = platformv1alpha1.AppPhaseHealthy
 		meta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{
@@ -454,6 +471,37 @@ func (r *AppReconciler) syncStatus(ctx context.Context, app *platformv1alpha1.Ap
 		return ctrl.Result{RequeueAfter: 5_000_000_000}, nil // 5 s
 	}
 	return ctrl.Result{}, nil
+}
+
+// deploymentProgressDeadlineExceeded returns true when the Deployment's
+// Progressing condition has reason ProgressDeadlineExceeded.
+func deploymentProgressDeadlineExceeded(d *appsv1.Deployment) bool {
+	for _, c := range d.Status.Conditions {
+		if c.Type == appsv1.DeploymentProgressing &&
+			c.Status == "False" &&
+			c.Reason == "ProgressDeadlineExceeded" {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileSuspended scales the Deployment to zero and sets the Suspended phase.
+func (r *AppReconciler) reconcileSuspended(ctx context.Context, app *platformv1alpha1.App, namespace string) (ctrl.Result, error) {
+	existing := &appsv1.Deployment{}
+	err := r.Get(ctx, types.NamespacedName{Name: app.Name, Namespace: namespace}, existing)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+	if err == nil && (existing.Spec.Replicas == nil || *existing.Spec.Replicas != 0) {
+		patch := client.MergeFrom(existing.DeepCopy())
+		zero := int32(0)
+		existing.Spec.Replicas = &zero
+		if patchErr := r.Patch(ctx, existing, patch); patchErr != nil {
+			return ctrl.Result{}, patchErr
+		}
+	}
+	return r.setPhase(ctx, app, platformv1alpha1.AppPhaseSuspended, "App is suspended.")
 }
 
 // setPhase is a helper to patch status.phase + a progressing condition and return.
