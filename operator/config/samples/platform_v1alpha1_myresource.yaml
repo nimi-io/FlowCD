@@ -1,9 +1,15 @@
 apiVersion: platform.flowcd.io/v1alpha1
-kind: MyResource
+kind: Pipeline
 metadata:
   labels:
-    app.kubernetes.io/name: operator-new
-    app.kubernetes.io/managed-by: kustomize
-  name: myresource-sample
+    app.kubernetes.io/name: flowcd
+    app.kubernetes.io/managed-by: flowcd-operator
+  name: pipeline-sample
 spec:
-  # TODO(user): Add fields here
+  appRef: app-sample
+  registry: ghcr.io/myorg
+  imageName: my-app
+  dockerfilePath: Dockerfile
+  buildArgs:
+    - name: NODE_ENV
+      value: production
