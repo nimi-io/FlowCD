@@ -93,38 +93,44 @@ func (r *AppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 	}
 
-	// 4. If no image has been set yet, wait in Pending phase.
-	if app.Spec.Image == "" {
-		log.Info("No image set — waiting for build pipeline", "name", app.Name)
-		return r.setPhase(ctx, app, platformv1alpha1.AppPhasePending, "No image configured; waiting for build pipeline.")
-	}
-
-	// 5. Determine the target namespace.
+	// 4. Determine the target namespace (needed for both suspend and normal paths).
 	targetNamespace := app.Namespace
 	if app.Spec.Destination != nil && app.Spec.Destination.Namespace != "" {
 		targetNamespace = app.Spec.Destination.Namespace
 	}
 
-	// 6. Reconcile Deployment.
+	// 5. Handle suspended apps — scale Deployment to zero.
+	if app.Spec.Suspended {
+		log.Info("App is suspended", "name", app.Name)
+		return r.reconcileSuspended(ctx, app, targetNamespace)
+	}
+
+	// 6. If no image has been set yet, wait in Pending phase.
+	if app.Spec.Image == "" {
+		log.Info("No image set — waiting for build pipeline", "name", app.Name)
+		return r.setPhase(ctx, app, platformv1alpha1.AppPhasePending, "No image configured; waiting for build pipeline.")
+	}
+
+	// 7. Reconcile Deployment.
 	deployment, err := r.reconcileDeployment(ctx, app, targetNamespace)
 	if err != nil {
 		_ = r.setDegradedCondition(ctx, app, "DeploymentFailed", err.Error())
 		return ctrl.Result{}, err
 	}
 
-	// 7. Reconcile Service.
+	// 8. Reconcile Service.
 	if err := r.reconcileService(ctx, app, targetNamespace); err != nil {
 		_ = r.setDegradedCondition(ctx, app, "ServiceFailed", err.Error())
 		return ctrl.Result{}, err
 	}
 
-	// 8. Reconcile Ingress for custom domains.
+	// 9. Reconcile Ingress for custom domains.
 	if err := r.reconcileIngress(ctx, app, targetNamespace); err != nil {
 		_ = r.setDegradedCondition(ctx, app, "IngressFailed", err.Error())
 		return ctrl.Result{}, err
 	}
 
-	// 9. Sync status from the Deployment.
+	// 10. Sync status from the Deployment.
 	return r.syncStatus(ctx, app, deployment)
 }
 
