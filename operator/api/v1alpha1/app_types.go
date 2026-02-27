@@ -72,6 +72,11 @@ type AppSpec struct {
 	// +optional
 	Domains []string `json:"domains,omitempty"`
 
+	// suspended temporarily halts reconciliation of this App without deleting it.
+	// The Deployment is scaled to zero and the phase is set to Suspended.
+	// +optional
+	Suspended bool `json:"suspended,omitempty"`
+
 	// destination specifies the target namespace for the workload resources.
 	// +optional
 	Destination *AppDestination `json:"destination,omitempty"`
