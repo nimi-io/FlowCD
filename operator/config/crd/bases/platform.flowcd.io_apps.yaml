@@ -1,0 +1,238 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: apps.platform.flowcd.io
+spec:
+  group: platform.flowcd.io
+  names:
+    kind: App
+    listKind: AppList
+    plural: apps
+    singular: app
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.imageTag
+      name: Image
+      type: string
+    - jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: App is the Schema for the apps API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of App.
+            properties:
+              branch:
+                default: main
+                description: branch is the Git branch, tag, or commit SHA to deploy.
+                type: string
+              destination:
+                description: destination specifies the target namespace for the workload
+                  resources.
+                properties:
+                  namespace:
+                    description: |-
+                      namespace in which Deployment / Service are created.
+                      Defaults to the App resource's own namespace when empty.
+                    type: string
+                type: object
+              domains:
+                description: domains is a list of custom hostnames that should be
+                  routed to this app.
+                items:
+                  type: string
+                type: array
+              env:
+                description: env is a list of environment variables injected into
+                  the container.
+                items:
+                  description: AppEnvVar is an environment variable with an optional
+                    Secret reference.
+                  properties:
+                    name:
+                      description: name of the environment variable.
+                      minLength: 1
+                      type: string
+                    secretKeyRef:
+                      description: secretKeyRef references a key inside a Kubernetes
+                        Secret.
+                      properties:
+                        key:
+                          description: key within the Secret whose value will be used.
+                          type: string
+                        name:
+                          description: name of the Secret resource.
+                          type: string
+                      required:
+                      - key
+                      - name
+                      type: object
+                    value:
+                      description: value is the literal string value (avoid for sensitive
+                        data — use secretKeyRef).
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              image:
+                description: |-
+                  image is the fully-qualified container image to run (e.g. set by the build pipeline).
+                  When empty the controller will not create a Deployment until an image is provided.
+                type: string
+              port:
+                default: 8080
+                description: port is the TCP port the container listens on.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              replicas:
+                default: 1
+                description: replicas is the desired number of running pod replicas.
+                format: int32
+                minimum: 0
+                type: integer
+              repoUrl:
+                description: repoUrl is the URL of the Git repository to deploy from.
+                minLength: 1
+                type: string
+            required:
+            - repoUrl
+            type: object
+          status:
+            description: status defines the observed state of App.
+            properties:
+              availableReplicas:
+                description: availableReplicas is the number of pods that are available.
+                format: int32
+                type: integer
+              conditions:
+                description: conditions represent the current state of the App resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              imageTag:
+                description: imageTag is the container image tag currently running.
+                type: string
+              lastBuildAt:
+                description: lastBuildAt is the timestamp of the last successful image
+                  build.
+                format: date-time
+                type: string
+              lastDeployedAt:
+                description: lastDeployedAt is the timestamp of the last successful
+                  deployment.
+                format: date-time
+                type: string
+              phase:
+                description: phase is the high-level lifecycle phase of the App.
+                enum:
+                - Pending
+                - Building
+                - Deploying
+                - Healthy
+                - Degraded
+                - Failed
+                - Suspended
+                type: string
+              readyReplicas:
+                description: readyReplicas is the number of pods that are fully ready.
+                format: int32
+                type: integer
+              url:
+                description: url is the primary HTTP(S) URL for the deployed application.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
